@@ -1,1 +1,125 @@
+# app.py
+from typing import Dict, List, Optional
+from fastapi import FastAPI, HTTPException, Query, status
+from pydantic import BaseModel, Field, HttpUrl, conint, confloat
+
+app = FastAPI(title="Book Categories API", version="1.0.0")
+
+# ---------- Models ----------
+class BookCategory(BaseModel):
+    id: conint(ge=1) = Field(..., description="Unique numeric identifier")
+    name: str = Field(..., min_length=2, max_length=80, description="Category name")
+    description: Optional[str] = Field(None, max_length=300, description="Short description")
+    grade: confloat(ge=0.0, le=5.0) = Field(0.0, description="Quality/curation score (0–5)")
+    image_url: Optional[HttpUrl] = Field(None, description="Image evidence URL for the category")
+    is_active: bool = Field(True, description="Whether the category is visible/usable")
+
+# In-memory "burned" database
+DB: Dict[int, BookCategory] = {
+    1: BookCategory(
+        id=1,
+        name="Ciencia Ficción",
+        description="Utopías, distopías, space opera y más.",
+        grade=4.7,
+        image_url="https://example.com/img/scifi.jpg",
+        is_active=True,
+    ),
+    2: BookCategory(
+        id=2,
+        name="No Ficción",
+        description="Historia, ensayo, divulgación.",
+        grade=4.2,
+        image_url="https://example.com/img/nonfiction.jpg",
+        is_active=True,
+    ),
+    3: BookCategory(
+        id=3,
+        name="Fantasía",
+        description="Épica, urbana, grimdark.",
+        grade=4.5,
+        image_url="https://example.com/img/fantasy.jpg",
+        is_active=True,
+    ),
+    4: BookCategory(
+        id=4,
+        name="Misterio y Thriller",
+        description="Policial, suspenso, true crime.",
+        grade=3.9,
+        image_url="https://example.com/img/thriller.jpg",
+        is_active=False,
+    ),
+    5: BookCategory(
+        id=5,
+        name="Infantil y Juvenil",
+        description="Lecturas para primeras edades y YA.",
+        grade=4.1,
+        image_url="https://example.com/img/kids.jpg",
+        is_active=True,
+    ),
+}
+
+# ---------- Endpoints ----------
+@app.get("/categories", response_model=List[BookCategory])
+def list_categories(
+    min_grade: Optional[float] = Query(None, ge=0.0, le=5.0, description="Filter: minimum grade"),
+    name_contains: Optional[str] = Query(None, min_length=1, description="Filter: case-insensitive substring in name"),
+    is_active: Optional[bool] = Query(None, description="Filter: active state (optional extra)"),
+):
+    """
+    Returns all categories with optional filters:
+    - min_grade: float [0..5]
+    - name_contains: substring (case-insensitive) contained in 'name'
+    - is_active: True/False (optional extra filter)
+    """
+    items = list(DB.values())
+
+    if min_grade is not None:
+        items = [c for c in items if c.grade >= min_grade]
+
+    if name_contains:
+        needle = name_contains.lower()
+        items = [c for c in items if needle in c.name.lower()]
+
+    if is_active is not None:
+        items = [c for c in items if c.is_active == is_active]
+
+    return items
+
+
+@app.get("/categories/{category_id}", response_model=BookCategory)
+def get_category(category_id: int):
+    """
+    Return a single category by ID.
+    """
+    if category_id not in DB:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    return DB[category_id]
+
+
+@app.post("/categories", response_model=BookCategory, status_code=status.HTTP_201_CREATED)
+def create_category(payload: BookCategory):
+    """
+    Add a new category to the 'burned' dictionary.
+    - ID must be unique.
+    """
+    if payload.id in DB:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category ID already exists")
+    DB[payload.id] = payload
+    return payload
+
+
+@app.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(category_id: int):
+    """
+    Delete a category by ID.
+    """
+    if category_id not in DB:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    del DB[category_id]
+    return None
+
+# Optional: run local
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
 
